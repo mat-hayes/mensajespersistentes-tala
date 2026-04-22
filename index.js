@@ -134,3 +134,41 @@ app.post("/debug/insert-message", async (req, res) => {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
+
+app.get("/messages/:chatId", async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    const limit = Number(req.query.limit || 50);
+
+    const result = await pool.query(
+      `
+      SELECT
+        id,
+        chat_id,
+        sender_type,
+        direction,
+        message_type,
+        created_at,
+        role,
+        content,
+        sender_id,
+        sent_by_me
+      FROM messages
+      WHERE chat_id = $1
+      ORDER BY created_at ASC
+      LIMIT $2
+      `,
+      [chatId, limit]
+    );
+
+    res.json({
+      ok: true,
+      rows: result.rows,
+    });
+  } catch (err) {
+    res.status(500).json({
+      ok: false,
+      error: err.message,
+    });
+  }
+});
