@@ -68,3 +68,69 @@ app.get("/debug/chats", async (req, res) => {
     res.status(500).json({ ok: false, error: e.message });
   }
 });
+
+app.post("/debug/insert-message", async (req, res) => {
+  try {
+    const {
+      chat_id,
+      role,
+      content,
+      sender_id = null,
+      sent_by_me = false,
+      message_type = "text",
+      created_at = null
+    } = req.body;
+
+    if (!chat_id || !role || !content) {
+      return res.status(400).json({
+        ok: false,
+        error: "chat_id, role y content son obligatorios"
+      });
+    }
+
+    const chatResult = await pool.query(
+      `
+      insert into chats (chat_id, updated_at)
+      values ($1, now())
+      on conflict (chat_id)
+      do update set updated_at = now()
+      returning id
+      `,
+      [chat_id]
+    );
+
+    const chatDbId = chatResult.rows[0].id;
+
+    const result = await pool.query(
+      `
+      insert into messages (
+        chat_id,
+        role,
+        content,
+        sender_id,
+        sent_by_me,
+        message_type,
+        created_at
+      )
+      values (
+        $1, $2, $3, $4, $5, $6,
+        coalesce($7::timestamptz, now())
+      )
+      returning *
+      `,
+      [
+        chatDbId,
+        role,
+        content,
+        sender_id,
+        sent_by_me,
+        message_type,
+        created_at
+      ]
+    );
+
+    res.json({ ok: true, row: result.rows[0] });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
