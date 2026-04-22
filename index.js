@@ -172,3 +172,79 @@ app.get("/messages/:chatId", async (req, res) => {
     });
   }
 });
+
+app.get('/messages-by-sender/:senderId', async (req, res) => {
+
+  try {
+
+    const { senderId } = req.params;
+
+    const limit = Number(req.query.limit || 50);
+
+    const result = await pool.query(
+
+      `
+
+      SELECT
+
+        id,
+
+        chat_id,
+
+        session_id,
+
+        sender_type,
+
+        direction,
+
+        text,
+
+        message_type,
+
+        created_at,
+
+        role,
+
+        content,
+
+        sender_id,
+
+        sent_by_me
+
+      FROM messages
+
+      WHERE sender_id = $1
+
+      ORDER BY created_at ASC
+
+      LIMIT $2
+
+      `,
+
+      [decodeURIComponent(senderId), limit]
+
+    );
+
+    res.json({
+
+      ok: true,
+
+      count: result.rows.length,
+
+      rows: result.rows
+
+    });
+
+  } catch (err) {
+
+    res.status(500).json({
+
+      ok: false,
+
+      error: err.message
+
+    });
+
+  }
+
+});
