@@ -226,11 +226,9 @@ app.get('/messages-by-sender/:senderId', async (req, res) => {
     const limit = Number(req.query.limit || 50);
     const decodedSenderId = decodeURIComponent(senderId);
 
-    // 1) Buscar el chat interno más reciente para ese sender_id
     const latestMessageResult = await pool.query(
       `
-      SELECT
-        chat_id
+      SELECT chat_id
       FROM messages
       WHERE sender_id = $1
       ORDER BY created_at DESC
@@ -249,26 +247,29 @@ app.get('/messages-by-sender/:senderId', async (req, res) => {
 
     const internalChatId = latestMessageResult.rows[0].chat_id;
 
-    // 2) Traer todo el historial de ese chat interno
     const result = await pool.query(
       `
-      SELECT
-        id,
-        chat_id,
-        session_id,
-        sender_type,
-        direction,
-        text,
-        message_type,
-        created_at,
-        role,
-        content,
-        sender_id,
-        sent_by_me
-      FROM messages
-      WHERE chat_id = $1
+      SELECT *
+      FROM (
+        SELECT
+          id,
+          chat_id,
+          session_id,
+          sender_type,
+          direction,
+          text,
+          message_type,
+          created_at,
+          role,
+          content,
+          sender_id,
+          sent_by_me
+        FROM messages
+        WHERE chat_id = $1
+        ORDER BY created_at DESC
+        LIMIT $2
+      ) t
       ORDER BY created_at ASC
-      LIMIT $2
       `,
       [internalChatId, limit]
     );
