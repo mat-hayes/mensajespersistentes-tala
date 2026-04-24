@@ -33,6 +33,27 @@ app.listen(PORT, () => {
   console.log(`listening on ${PORT}`);
 });
 
+async function getChatDbIdByExternalChatId(externalChatId) {
+  const chatResult = await pool.query(
+    `
+    SELECT id, chat_id
+    FROM chats
+    WHERE chat_id = $1
+    LIMIT 1
+    `,
+    [externalChatId]
+  );
+
+  if (!chatResult.rows.length) {
+    return null;
+  }
+
+  return {
+    ...chatResult.rows[0],
+    id: Number(chatResult.rows[0].id),
+  };
+}
+
 app.post('/debug/insert-chat', async (req, res) => {
   try {
     const { chat_id } = req.body;
@@ -106,7 +127,7 @@ app.post('/debug/insert-message', async (req, res) => {
       [chat_id]
     );
 
-    const chatDbId = chatResult.rows[0].id;
+    const chatDbId = Number(chatResult.rows[0].id);
 
     const result = await pool.query(
       `
@@ -142,24 +163,6 @@ app.post('/debug/insert-message', async (req, res) => {
   }
 });
 
-async function getChatDbIdByExternalChatId(externalChatId) {
-  const chatResult = await pool.query(
-    `
-    SELECT id, chat_id
-    FROM chats
-    WHERE chat_id = $1
-    LIMIT 1
-    `,
-    [externalChatId]
-  );
-
-  if (!chatResult.rows.length) {
-    return null;
-  }
-
-  return chatResult.rows[0];
-}
-
 app.get('/messages/:chatId', async (req, res) => {
   try {
     const { chatId } = req.params;
@@ -175,6 +178,8 @@ app.get('/messages/:chatId', async (req, res) => {
         rows: [],
       });
     }
+
+    const chatDbId = Number(chatRow.id);
 
     const result = await pool.query(
       `
@@ -196,7 +201,7 @@ app.get('/messages/:chatId', async (req, res) => {
       ORDER BY m.created_at ASC
       LIMIT $2
       `,
-      [chatRow.id, limit]
+      [chatDbId, limit]
     );
 
     res.json({
@@ -228,6 +233,8 @@ app.get('/messages-by-chat/:chatId', async (req, res) => {
       });
     }
 
+    const chatDbId = Number(chatRow.id);
+
     const result = await pool.query(
       `
       SELECT
@@ -248,7 +255,7 @@ app.get('/messages-by-chat/:chatId', async (req, res) => {
       ORDER BY m.created_at ASC
       LIMIT $2
       `,
-      [chatRow.id, limit]
+      [chatDbId, limit]
     );
 
     res.json({
@@ -271,9 +278,8 @@ app.get('/messages-by-sender/:senderId', async (req, res) => {
     const decodedSenderId = decodeURIComponent(senderId);
 
     // Compatibilidad con tu flujo actual de n8n:
-    // aunque el endpoint se llame "by-sender",
-    // devolvemos el historial completo del chat cuyo chat_id coincide
-    // con ese senderId/JID.
+    // aunque se llame by-sender, devuelve todo el historial del chat
+    // cuyo chat_id externo coincide con ese senderId.
     const chatRow = await getChatDbIdByExternalChatId(decodedSenderId);
 
     if (!chatRow) {
@@ -283,6 +289,8 @@ app.get('/messages-by-sender/:senderId', async (req, res) => {
         rows: [],
       });
     }
+
+    const chatDbId = Number(chatRow.id);
 
     const result = await pool.query(
       `
@@ -304,7 +312,7 @@ app.get('/messages-by-sender/:senderId', async (req, res) => {
       ORDER BY m.created_at ASC
       LIMIT $2
       `,
-      [chatRow.id, limit]
+      [chatDbId, limit]
     );
 
     res.json({
