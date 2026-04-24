@@ -33,27 +33,6 @@ app.listen(PORT, () => {
   console.log(`listening on ${PORT}`);
 });
 
-async function getChatDbIdByExternalChatId(externalChatId) {
-  const chatResult = await pool.query(
-    `
-    SELECT id, chat_id
-    FROM chats
-    WHERE chat_id = $1
-    LIMIT 1
-    `,
-    [externalChatId]
-  );
-
-  if (!chatResult.rows.length) {
-    return null;
-  }
-
-  return {
-    ...chatResult.rows[0],
-    id: Number(chatResult.rows[0].id),
-  };
-}
-
 app.post('/debug/insert-chat', async (req, res) => {
   try {
     const { chat_id } = req.body;
@@ -122,12 +101,12 @@ app.post('/debug/insert-message', async (req, res) => {
       VALUES ($1, now())
       ON CONFLICT (chat_id)
       DO UPDATE SET updated_at = now()
-      RETURNING id, chat_id
+      RETURNING id
       `,
       [chat_id]
     );
 
-    const chatDbId = Number(chatResult.rows[0].id);
+    const chatDbId = chatResult.rows[0].id;
 
     const result = await pool.query(
       `
@@ -167,41 +146,26 @@ app.get('/messages/:chatId', async (req, res) => {
   try {
     const { chatId } = req.params;
     const limit = Number(req.query.limit || 50);
-    const decodedChatId = decodeURIComponent(chatId);
-
-    const chatRow = await getChatDbIdByExternalChatId(decodedChatId);
-
-    if (!chatRow) {
-      return res.json({
-        ok: true,
-        count: 0,
-        rows: [],
-      });
-    }
-
-    const chatDbId = Number(chatRow.id);
 
     const result = await pool.query(
       `
       SELECT
-        m.id,
-        c.chat_id AS external_chat_id,
-        m.chat_id,
-        m.sender_type,
-        m.direction,
-        m.message_type,
-        m.created_at,
-        m.role,
-        m.content,
-        m.sender_id,
-        m.sent_by_me
-      FROM messages m
-      JOIN chats c ON c.id = m.chat_id
-      WHERE m.chat_id = $1
-      ORDER BY m.created_at ASC
+        id,
+        chat_id,
+        sender_type,
+        direction,
+        message_type,
+        created_at,
+        role,
+        content,
+        sender_id,
+        sent_by_me
+      FROM messages
+      WHERE chat_id = $1::bigint
+      ORDER BY created_at ASC
       LIMIT $2
       `,
-      [chatDbId, limit]
+      [Number(chatId), limit]
     );
 
     res.json({
@@ -221,41 +185,26 @@ app.get('/messages-by-chat/:chatId', async (req, res) => {
   try {
     const { chatId } = req.params;
     const limit = Number(req.query.limit || 50);
-    const decodedChatId = decodeURIComponent(chatId);
-
-    const chatRow = await getChatDbIdByExternalChatId(decodedChatId);
-
-    if (!chatRow) {
-      return res.json({
-        ok: true,
-        count: 0,
-        rows: [],
-      });
-    }
-
-    const chatDbId = Number(chatRow.id);
 
     const result = await pool.query(
       `
       SELECT
-        m.id,
-        c.chat_id AS external_chat_id,
-        m.chat_id,
-        m.sender_type,
-        m.direction,
-        m.message_type,
-        m.created_at,
-        m.role,
-        m.content,
-        m.sender_id,
-        m.sent_by_me
-      FROM messages m
-      JOIN chats c ON c.id = m.chat_id
-      WHERE m.chat_id = $1
-      ORDER BY m.created_at ASC
+        id,
+        chat_id,
+        sender_type,
+        direction,
+        message_type,
+        created_at,
+        role,
+        content,
+        sender_id,
+        sent_by_me
+      FROM messages
+      WHERE chat_id = $1::bigint
+      ORDER BY created_at ASC
       LIMIT $2
       `,
-      [chatDbId, limit]
+      [Number(chatId), limit]
     );
 
     res.json({
@@ -277,12 +226,20 @@ app.get('/messages-by-sender/:senderId', async (req, res) => {
     const limit = Number(req.query.limit || 50);
     const decodedSenderId = decodeURIComponent(senderId);
 
-    // Compatibilidad con tu flujo actual de n8n:
-    // aunque se llame by-sender, devuelve todo el historial del chat
-    // cuyo chat_id externo coincide con ese senderId.
-    const chatRow = await getChatDbIdByExternalChatId(decodedSenderId);
+    // 1) Buscar el chat interno más reciente para ese sender_id
+    const latestMessageResult = await pool.query(
+      `
+      SELECT
+        chat_id
+      FROM messages
+      WHERE sender_id = $1
+      ORDER BY created_at DESC
+      LIMIT 1
+      `,
+      [decodedSenderId]
+    );
 
-    if (!chatRow) {
+    if (!latestMessageResult.rows.length) {
       return res.json({
         ok: true,
         count: 0,
@@ -290,29 +247,30 @@ app.get('/messages-by-sender/:senderId', async (req, res) => {
       });
     }
 
-    const chatDbId = Number(chatRow.id);
+    const internalChatId = latestMessageResult.rows[0].chat_id;
 
+    // 2) Traer todo el historial de ese chat interno
     const result = await pool.query(
       `
       SELECT
-        m.id,
-        c.chat_id AS external_chat_id,
-        m.chat_id,
-        m.sender_type,
-        m.direction,
-        m.message_type,
-        m.created_at,
-        m.role,
-        m.content,
-        m.sender_id,
-        m.sent_by_me
-      FROM messages m
-      JOIN chats c ON c.id = m.chat_id
-      WHERE m.chat_id = $1
-      ORDER BY m.created_at ASC
+        id,
+        chat_id,
+        session_id,
+        sender_type,
+        direction,
+        text,
+        message_type,
+        created_at,
+        role,
+        content,
+        sender_id,
+        sent_by_me
+      FROM messages
+      WHERE chat_id = $1
+      ORDER BY created_at ASC
       LIMIT $2
       `,
-      [chatDbId, limit]
+      [internalChatId, limit]
     );
 
     res.json({
